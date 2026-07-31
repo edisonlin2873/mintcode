@@ -1,7 +1,7 @@
 import { State, getState, setState } from './state-machine.js';
-import { configure as configureAI, callApi, buildSystemPrompt, buildEvaluationPrompt } from './ai-client.js';
+import { configure as configureAI, callApi, getUsageStats, resetUsage, buildSystemPrompt, buildEvaluationPrompt } from './ai-client.js';
 import { start as startTimer, stop as stopTimer, getElapsed } from './timer.js';
-import { getAll } from '../lib/storage.js';
+import { getAll, getLifetimeUsage, addLifetimeUsage } from '../lib/storage.js';
 import { MessageType } from '../lib/messages.js';
 import { getRandomProblem, getProblemDetail } from '../lib/leetcode-api.js';
 
@@ -67,6 +67,9 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     case MessageType.CANCEL_INTERVIEW:
       handleCancel();
       break;
+    case MessageType.VOID_INTERVIEW:
+      handleVoidInterview();
+      break;
     case MessageType.INTERVIEW_STARTED:
       handleInterviewStarted();
       break;
@@ -106,18 +109,25 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     case MessageType.OVERLAY_READY:
       break;
     case MessageType.GET_STATE:
-      sendToSidePanel({
-        type: MessageType.STATE_UPDATE,
-        state: getState(),
-        interviewData,
-        transcript,
-        codeSnapshots: codeSnapshots.length,
-        submissionHistory,
-        remaining: 0,
-      });
+      handleGetState();
       break;
   }
 });
+
+async function handleGetState() {
+  const lifetimeUsage = await getLifetimeUsage();
+  sendToSidePanel({
+    type: MessageType.STATE_UPDATE,
+    state: getState(),
+    interviewData,
+    transcript,
+    codeSnapshots: codeSnapshots.length,
+    submissionHistory,
+    usage: getUsageStats(),
+    lifetimeUsage,
+    remaining: 0,
+  });
+}
 
 async function handleStartInterview(msg) {
   try {
@@ -131,12 +141,15 @@ async function handleStartInterview(msg) {
     codeSnapshots = [];
     submissionHistory = [];
     currentLanguage = '';
+    resetUsage();
 
     const settings = await getAll();
     configureAI(
       msg.apiKey || settings.apiKey,
       msg.apiBaseUrl || settings.apiBaseUrl,
-      msg.model || settings.model
+      msg.model || settings.model,
+      settings.customInputPrice,
+      settings.customOutputPrice
     );
 
     setState(State.SELECTING_PROBLEM);
@@ -185,6 +198,16 @@ function handleCancel() {
   broadcastState();
 }
 
+function handleVoidInterview() {
+  // Voids the interview WITHOUT calling the AI API, so no credits are used.
+  if (tabId) {
+    sendToTab(tabId, { type: MessageType.INTERVIEW_ENDED }).catch(() => {});
+  }
+  cleanupInterview();
+  setState(State.IDLE);
+  broadcastState();
+}
+
 function handleInterviewStarted() {
   setState(State.INTERVIEWING);
   broadcastState();
@@ -212,7 +235,7 @@ async function handleInterviewFinished(msg) {
   const elapsed = getElapsed();
 
   try {
-    const result = await callApi([
+    const { content } = await callApi([
       { role: 'system', content: buildSystemPrompt(interviewData.problemDetail, currentLanguage) },
       {
         role: 'user',
@@ -229,12 +252,15 @@ async function handleInterviewFinished(msg) {
 
     let parsed;
     try {
-      parsed = JSON.parse(result);
+      parsed = JSON.parse(content);
     } catch {
-      parsed = { summary: result, scores: {}, overallScore: 0, recommendation: 'N/A' };
+      parsed = { summary: content, scores: {}, overallScore: 0, recommendation: 'N/A' };
     }
 
-    sendToSidePanel({ type: MessageType.EVALUATION_RESULT, result: parsed });
+    const usage = getUsageStats();
+    const lifetimeUsage = await addLifetimeUsage(usage);
+
+    sendToSidePanel({ type: MessageType.EVALUATION_RESULT, result: parsed, usage, lifetimeUsage });
     sendToTab(tabId, { type: MessageType.EVALUATION_RESULT, result: parsed });
 
     setState(State.COMPLETED);
@@ -273,6 +299,7 @@ function broadcastState() {
     type: MessageType.STATE_UPDATE,
     state: getState(),
     interviewData,
+    usage: getUsageStats(),
     remaining: 0,
   });
 }

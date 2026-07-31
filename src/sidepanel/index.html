@@ -122,6 +122,8 @@
 
     .btn-primary { background: #4fc3f7; color: #0f0f1a; }
     .btn-danger { background: #d32f2f; color: #fff; }
+    .btn-void { background: #7c4dff; color: #fff; }
+    .btn-void:hover { opacity: 0.9; }
     .btn-secondary { background: #2a2a3e; color: #e0e0e0; }
     .btn-success { background: #4caf50; color: #fff; }
 
@@ -261,6 +263,36 @@
       white-space: pre-wrap;
     }
 
+    .usage-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 12px;
+    }
+    .usage-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      color: #ccc;
+    }
+    .usage-row span:last-child {
+      color: #e0e0e0;
+      font-variant-numeric: tabular-nums;
+    }
+    .usage-cost span:last-child {
+      color: #4fc3f7;
+      font-weight: 600;
+    }
+    .usage-note {
+      font-size: 10px;
+      color: #666;
+      margin: 6px 0 2px;
+      border-top: 1px solid #2a2a3e;
+      padding-top: 6px;
+    }
+
     .welcome-message {
       text-align: center;
       color: #666;
@@ -364,6 +396,14 @@
             <label>Duration Override (min, 0=auto)</label>
             <input type="number" id="durationOverride" min="0" max="120" placeholder="0" />
           </div>
+          <div class="field">
+            <label>Custom Input Price (USD /1M tokens)</label>
+            <input type="number" id="customInputPrice" min="0" step="0.01" placeholder="0 = auto" />
+          </div>
+          <div class="field">
+            <label>Custom Output Price (USD /1M tokens)</label>
+            <input type="number" id="customOutputPrice" min="0" step="0.01" placeholder="0 = auto" />
+          </div>
         </div>
       </details>
 
@@ -386,6 +426,7 @@
       <label style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;display:block;margin-top:12px;">Submissions</label>
       <div class="submission-box" id="submissionBox">(no submissions yet)</div>
       <button class="btn btn-danger" id="finishBtn" style="margin-top:12px;">■ Finish Early</button>
+      <button class="btn btn-void" id="voidBtn" style="margin-top:8px;">⛔ Void Interview</button>
     </div>
 
     <!-- RESULTS PANEL -->
@@ -398,6 +439,22 @@
       <div id="resultDimensions"></div>
       <h3 style="font-size:13px;margin-bottom:8px;color:#fff;">Summary</h3>
       <div class="summary-text" id="resultSummary">Complete an interview to see your evaluation.</div>
+
+      <h3 style="font-size:13px;margin-bottom:8px;color:#fff;">API Usage</h3>
+      <div class="usage-card" id="usageCard">
+        <div class="usage-row"><span>Model</span><span id="usageModel">—</span></div>
+        <div class="usage-row"><span>API Calls</span><span id="usageCalls">—</span></div>
+        <div class="usage-row"><span>Prompt Tokens</span><span id="usagePrompt">—</span></div>
+        <div class="usage-row"><span>Completion Tokens</span><span id="usageCompletion">—</span></div>
+        <div class="usage-row"><span>Total Tokens</span><span id="usageTotal">—</span></div>
+        <div class="usage-row usage-cost"><span>Estimated Cost</span><span id="usageCost">—</span></div>
+        <div class="usage-note">All time (this extension)</div>
+        <div class="usage-row"><span>Total Tokens</span><span id="usageLifetimeTokens">—</span></div>
+        <div class="usage-row"><span>API Calls</span><span id="usageLifetimeCalls">—</span></div>
+        <div class="usage-row usage-cost"><span>Estimated Cost</span><span id="usageLifetimeCost">—</span></div>
+        <div class="usage-note">* Cost estimated from public model pricing; set custom prices in Advanced to override.</div>
+      </div>
+
       <button class="btn btn-primary" id="newInterviewBtn">🔄 New Interview</button>
     </div>
   </div>

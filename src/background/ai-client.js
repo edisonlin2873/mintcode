@@ -1,11 +1,41 @@
 let apiKey = '';
 let apiBaseUrl = 'https://api.openai.com';
 let model = 'gpt-4o';
+let customInputPrice = 0;
+let customOutputPrice = 0;
 
-function configure(key, baseUrl, m) {
+const MODEL_PRICING = {
+  'gpt-4o': { input: 2.5, output: 10.0 },
+  'gpt-4o-2024-08-06': { input: 2.5, output: 10.0 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'gpt-4-turbo': { input: 10.0, output: 30.0 },
+  'gpt-4': { input: 30.0, output: 60.0 },
+  'gpt-3.5-turbo': { input: 0.5, output: 1.5 },
+};
+
+// Per-session usage tracking
+let usageStats = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  calls: 0,
+  estimatedCost: 0,
+};
+
+function configure(key, baseUrl, m, inputPrice, outputPrice) {
   apiKey = key;
   if (baseUrl) apiBaseUrl = baseUrl;
   if (m) model = m;
+  customInputPrice = inputPrice || 0;
+  customOutputPrice = outputPrice || 0;
+}
+
+function getPricing(m) {
+  const prices = MODEL_PRICING[m] || MODEL_PRICING['gpt-4o'];
+  return {
+    input: customInputPrice > 0 ? customInputPrice : prices.input,
+    output: customOutputPrice > 0 ? customOutputPrice : prices.output,
+  };
 }
 
 async function callApi(messages) {
@@ -28,7 +58,56 @@ async function callApi(messages) {
   }
 
   const data = await res.json();
-  return data.choices[0].message.content;
+  const content = data.choices[0].message.content;
+
+  const usage = data.usage || {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+  };
+
+  recordCall(usage);
+  return { content, usage };
+}
+
+function recordCall(usage) {
+  const promptTokens = usage.prompt_tokens || 0;
+  const completionTokens = usage.completion_tokens || 0;
+  const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+
+  const pricing = getPricing(model);
+  const cost =
+    (promptTokens / 1e6) * pricing.input +
+    (completionTokens / 1e6) * pricing.output;
+
+  usageStats.promptTokens += promptTokens;
+  usageStats.completionTokens += completionTokens;
+  usageStats.totalTokens += totalTokens;
+  usageStats.calls += 1;
+  usageStats.estimatedCost += cost;
+
+  return usageStats;
+}
+
+function getUsageStats() {
+  return {
+    promptTokens: usageStats.promptTokens,
+    completionTokens: usageStats.completionTokens,
+    totalTokens: usageStats.totalTokens,
+    calls: usageStats.calls,
+    estimatedCost: usageStats.estimatedCost,
+    model,
+  };
+}
+
+function resetUsage() {
+  usageStats = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    calls: 0,
+    estimatedCost: 0,
+  };
 }
 
 function buildSystemPrompt(problem, language) {
@@ -93,4 +172,4 @@ Provide your response in this format:
 }`;
 }
 
-export { configure, callApi, buildSystemPrompt, buildEvaluationPrompt };
+export { configure, callApi, getUsageStats, resetUsage, buildSystemPrompt, buildEvaluationPrompt, MODEL_PRICING };

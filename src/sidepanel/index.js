@@ -19,6 +19,8 @@ const ttsMutedInput = document.getElementById('ttsMuted');
 const apiBaseUrlInput = document.getElementById('apiBaseUrl');
 const modelInput = document.getElementById('model');
 const durationOverrideInput = document.getElementById('durationOverride');
+const customInputPriceInput = document.getElementById('customInputPrice');
+const customOutputPriceInput = document.getElementById('customOutputPrice');
 const startBtn = document.getElementById('startBtn');
 
 // Overlays
@@ -31,6 +33,7 @@ const aiMessageText = document.getElementById('aiMessageText');
 const transcriptBox = document.getElementById('transcriptBox');
 const submissionBox = document.getElementById('submissionBox');
 const finishBtn = document.getElementById('finishBtn');
+const voidBtn = document.getElementById('voidBtn');
 
 // Results
 const resultScore = document.getElementById('resultScore');
@@ -39,9 +42,22 @@ const resultDimensions = document.getElementById('resultDimensions');
 const resultSummary = document.getElementById('resultSummary');
 const newInterviewBtn = document.getElementById('newInterviewBtn');
 
+// Usage
+const usageModel = document.getElementById('usageModel');
+const usageCalls = document.getElementById('usageCalls');
+const usagePrompt = document.getElementById('usagePrompt');
+const usageCompletion = document.getElementById('usageCompletion');
+const usageTotal = document.getElementById('usageTotal');
+const usageCost = document.getElementById('usageCost');
+const usageLifetimeTokens = document.getElementById('usageLifetimeTokens');
+const usageLifetimeCalls = document.getElementById('usageLifetimeCalls');
+const usageLifetimeCost = document.getElementById('usageLifetimeCost');
+
 // ---- State ----
 let currentState = 'IDLE';
 let interviewData = null;
+let lastUsage = null;
+let lastLifetimeUsage = null;
 
 // Sync state with background on load
 chrome.runtime.sendMessage({ type: MessageType.GET_STATE }).catch(() => {});
@@ -55,6 +71,8 @@ get(DEFAULTS).then(settings => {
   apiBaseUrlInput.value = settings.apiBaseUrl || DEFAULTS.apiBaseUrl;
   modelInput.value = settings.model || DEFAULTS.model;
   durationOverrideInput.value = settings.durationOverride || 0;
+  customInputPriceInput.value = settings.customInputPrice || 0;
+  customOutputPriceInput.value = settings.customOutputPrice || 0;
 });
 
 function saveSettings() {
@@ -66,6 +84,8 @@ function saveSettings() {
     apiBaseUrl: apiBaseUrlInput.value || DEFAULTS.apiBaseUrl,
     model: modelInput.value || DEFAULTS.model,
     durationOverride: parseInt(durationOverrideInput.value) || 0,
+    customInputPrice: parseFloat(customInputPriceInput.value) || 0,
+    customOutputPrice: parseFloat(customOutputPriceInput.value) || 0,
   });
 }
 
@@ -135,6 +155,16 @@ finishBtn.addEventListener('click', () => {
   });
 });
 
+// ---- Void interview (no API credits used) ----
+voidBtn.addEventListener('click', () => {
+  if (!confirm('Void this interview? No AI credits will be used and no evaluation will be generated.')) return;
+  hideEvaluatingOverlay();
+  chrome.runtime.sendMessage({ type: MessageType.VOID_INTERVIEW }).catch(() => {});
+  switchTab('settings');
+  startBtn.disabled = false;
+  setStatusText('Interview voided — no AI credits used', 'success');
+});
+
 // ---- New interview ----
 newInterviewBtn.addEventListener('click', () => {
   switchTab('settings');
@@ -143,7 +173,11 @@ newInterviewBtn.addEventListener('click', () => {
 });
 
 // ---- Listen for messages from background ----
-chrome.runtime.onMessage.addListener((msg) => {
+// Ignore messages sent directly by content scripts (they broadcast to every
+// extension context). The background re-broadcasts these to us with proper
+// data, so processing both would duplicate entries (e.g. submissions at 00:00).
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (sender && sender.tab) return;
   switch (msg.type) {
     case MessageType.STATE_UPDATE:
       updateState(msg);
@@ -152,7 +186,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       aiMessageText.textContent = msg.text;
       break;
     case MessageType.EVALUATION_RESULT:
-      showResults(msg.result);
+      showResults(msg.result, msg.usage, msg.lifetimeUsage);
       break;
     case MessageType.TRANSCRIPT_UPDATE:
       updateTranscript(msg.text);
@@ -178,6 +212,8 @@ chrome.runtime.onMessage.addListener((msg) => {
 function updateState(msg) {
   currentState = msg.state;
   interviewData = msg.interviewData || interviewData;
+  if (msg.usage) lastUsage = msg.usage;
+  if (msg.lifetimeUsage) lastLifetimeUsage = msg.lifetimeUsage;
 
   const stateLabels = {
     IDLE: 'Idle',
@@ -212,6 +248,7 @@ function updateState(msg) {
 
   if (currentState === 'COMPLETED') {
     startBtn.disabled = false;
+    if (lastUsage) renderUsage(lastUsage, lastLifetimeUsage);
     switchTab('results');
   }
   if (currentState === 'IDLE' && startBtn.disabled) {
@@ -230,7 +267,9 @@ function hideEvaluatingOverlay() {
 
 function setStatusText(msg, type) {
   statusText.textContent = msg;
-  statusText.style.color = type === 'error' ? '#f44336' : '#666';
+  if (type === 'error') statusText.style.color = '#f44336';
+  else if (type === 'success') statusText.style.color = '#4caf50';
+  else statusText.style.color = '#666';
 }
 
 // ---- Timer ----
@@ -291,7 +330,7 @@ function resetSubmissions() {
 }
 
 // ---- Results ----
-function showResults(result) {
+function showResults(result, usage, lifetimeUsage) {
   const overall = result.overallScore || 0;
   resultScore.textContent = Math.round(overall);
 
@@ -326,7 +365,39 @@ function showResults(result) {
 
   resultSummary.textContent = result.summary || '';
 
+  if (usage) {
+    lastUsage = usage;
+    if (lifetimeUsage) lastLifetimeUsage = lifetimeUsage;
+    renderUsage(usage, lifetimeUsage || lastLifetimeUsage);
+  }
+
   switchTab('results');
+}
+
+// ---- API usage ----
+function formatTokens(n) {
+  return (n || 0).toLocaleString();
+}
+
+function formatCost(n) {
+  if (n === null || n === undefined) return '—';
+  return '$' + (n).toFixed(4).replace(/\.?0+$/, '');
+}
+
+function renderUsage(usage, lifetimeUsage) {
+  usageModel.textContent = usage.model || '—';
+  usageCalls.textContent = formatTokens(usage.calls);
+  usagePrompt.textContent = formatTokens(usage.promptTokens);
+  usageCompletion.textContent = formatTokens(usage.completionTokens);
+  usageTotal.textContent = formatTokens(usage.totalTokens);
+  usageCost.textContent = formatCost(usage.estimatedCost);
+
+  const lt = lifetimeUsage || lastLifetimeUsage;
+  if (lt) {
+    usageLifetimeTokens.textContent = formatTokens(lt.totalTokens);
+    usageLifetimeCalls.textContent = formatTokens(lt.calls);
+    usageLifetimeCost.textContent = formatCost(lt.estimatedCost);
+  }
 }
 
 // ---- Helpers ----
