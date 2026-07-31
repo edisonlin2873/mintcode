@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MintCode</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 320px;
+      padding: 16px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+    h1 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #fff;
+      text-align: center;
+    }
+    .field {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: #16213e;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #4fc3f7;
+    }
+    input::placeholder { color: #555; }
+    .checkbox-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .checkbox-field input {
+      width: auto;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-start {
+      background: #4fc3f7;
+      color: #1a1a2e;
+    }
+    .btn-start:hover { background: #29b6f6; }
+    .btn-start:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+    .btn-cancel {
+      background: #d32f2f;
+      color: #fff;
+      margin-top: 8px;
+    }
+    .btn-cancel:hover { background: #c62828; }
+    .status {
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      margin-top: 12px;
+      min-height: 18px;
+    }
+    .status.error { color: #f44336; }
+    .status.success { color: #4caf50; }
+    .advanced-toggle {
+      font-size: 12px;
+      color: #4fc3f7;
+      cursor: pointer;
+      text-align: center;
+      margin: 8px 0;
+    }
+    .advanced-toggle:hover { text-decoration: underline; }
+    .advanced { display: none; }
+    .advanced.visible { display: block; }
+    hr {
+      border: none;
+      border-top: 1px solid #333;
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🤖 MintCode</h1>
+
+  <div class="field">
+    <label>API Key</label>
+    <input type="password" id="apiKey" placeholder="sk-..." />
+  </div>
+
+  <div class="field">
+    <label>Difficulty</label>
+    <select id="difficulty">
+      <option value="random">Random</option>
+      <option value="easy">Easy</option>
+      <option value="medium" selected>Medium</option>
+      <option value="hard">Hard</option>
+    </select>
+  </div>
+
+  <div class="field checkbox-field">
+    <input type="checkbox" id="activeMode" />
+    <label style="margin:0;text-transform:none;">Active Interviewer (AI prompts when you're silent)</label>
+  </div>
+
+  <div class="advanced-toggle" id="advancedToggle">Advanced Settings ▸</div>
+  <div class="advanced" id="advancedSection">
+    <div class="field">
+      <label>API Base URL</label>
+      <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com" />
+    </div>
+    <div class="field">
+      <label>Model</label>
+      <input type="text" id="model" placeholder="gpt-4o" />
+    </div>
+    <div class="field">
+      <label>Duration Override (minutes, 0 = auto)</label>
+      <input type="number" id="durationOverride" min="0" max="120" placeholder="0" />
+    </div>
+  </div>
+
+  <hr />
+
+  <button class="btn btn-start" id="startBtn">Start Interview</button>
+  <button class="btn btn-cancel" id="cancelBtn" style="display:none">Cancel</button>
+
+  <div class="status" id="status">Set your API key and click Start</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

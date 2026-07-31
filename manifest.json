@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "MintCode",
+  "version": "1.0.0",
+  "description": "AI-powered mock interviews for LeetCode problems with speech evaluation",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "sidePanel",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://leetcode.com/*",
+    "https://zerotrac.github.io/*",
+    "https://api.openai.com/*"
+  ],
+  "action": {
+    "default_title": "MintCode"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://leetcode.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-bridge.js"],
+      "matches": ["https://leetcode.com/*"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
