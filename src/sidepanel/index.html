@@ -342,6 +342,124 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* Markdown */
+    .md-body p, .ai-message-text p {
+      margin: 0 0 8px;
+    }
+    .md-body h1, .md-body h2, .md-body h3,
+    .ai-message-text h1, .ai-message-text h2, .ai-message-text h3 {
+      margin: 10px 0 6px;
+      color: #e0e0e0;
+      line-height: 1.3;
+    }
+    .md-body ul, .md-body ol,
+    .ai-message-text ul, .ai-message-text ol {
+      margin: 0 0 8px;
+      padding-left: 20px;
+    }
+    .md-body li, .ai-message-text li { margin: 2px 0; }
+    .md-body blockquote, .ai-message-text blockquote {
+      margin: 8px 0;
+      padding: 4px 12px;
+      border-left: 3px solid #4fc3f7;
+      color: #888;
+    }
+    .md-body code, .ai-message-text code {
+      background: #2a2a3e;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #4fc3f7;
+      font-family: 'Cascadia Code', Consolas, monospace;
+    }
+    .md-code {
+      background: #0a0a14;
+      border: 1px solid #2a2a3e;
+      border-radius: 6px;
+      padding: 10px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .md-code code {
+      background: none;
+      padding: 0;
+      color: #d4d4d4;
+      font-family: 'Cascadia Code', Consolas, monospace;
+    }
+
+    /* History */
+    .history-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .history-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .history-title {
+      font-weight: 600;
+      color: #e0e0e0;
+      font-size: 13px;
+    }
+    .history-score {
+      font-size: 22px;
+      font-weight: 800;
+      color: #4fc3f7;
+      flex-shrink: 0;
+    }
+    .history-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 11px;
+      color: #888;
+      margin: 6px 0 8px;
+    }
+    .history-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .history-detail {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #2a2a3e;
+    }
+    .history-section {
+      margin-bottom: 12px;
+    }
+    .history-section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #4fc3f7;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .history-dim {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .history-dim-score { font-weight: 700; color: #4fc3f7; }
+    .history-dim-reason { font-size: 11px; color: #666; }
+    .history-pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      color: #aaa;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .rec-maybe { background: rgba(255, 152, 0, 0.2); color: #ff9800; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -354,11 +472,28 @@
     <div class="tab active" data-tab="settings">Settings</div>
     <div class="tab" data-tab="live">Live</div>
     <div class="tab" data-tab="results">Results</div>
+    <div class="tab" data-tab="history">History</div>
   </div>
 
   <div class="content">
     <!-- SETTINGS PANEL -->
     <div class="panel active" id="panel-settings">
+      <div class="field">
+        <label>Provider</label>
+        <select id="provider"></select>
+      </div>
+      <div class="field" id="customBaseUrlField" style="display:none">
+        <label>Base URL</label>
+        <input type="text" id="apiBaseUrl" placeholder="https://your-api.example.com/v1" />
+      </div>
+      <div class="field">
+        <label>Model</label>
+        <select id="model"></select>
+      </div>
+      <div class="field" id="customModelField" style="display:none">
+        <label>Model Name</label>
+        <input type="text" id="customModel" placeholder="e.g. gpt-4o-2024-08-06 or llama3.2" />
+      </div>
       <div class="field">
         <label>API Key</label>
         <input type="password" id="apiKey" placeholder="sk-..." />
@@ -374,24 +509,16 @@
       </div>
       <div class="field checkbox-field">
         <input type="checkbox" id="activeMode" />
-        <label style="margin:0;text-transform:none;">Active Interviewer (prompts if silent)</label>
+        <label style="margin:0;text-transform:none;">Active Interviewer </label>
       </div>
       <div class="field checkbox-field">
         <input type="checkbox" id="ttsMuted" />
-        <label style="margin:0;text-transform:none;">Mute AI voice (no speech)</label>
+        <label style="margin:0;text-transform:none;">Mute AI voice </label>
       </div>
 
       <details style="margin-bottom:12px;">
         <summary style="font-size:12px;color:#888;cursor:pointer;">Advanced</summary>
         <div style="padding:8px 0;">
-          <div class="field">
-            <label>API Base URL</label>
-            <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com" />
-          </div>
-          <div class="field">
-            <label>Model</label>
-            <input type="text" id="model" placeholder="gpt-4o" />
-          </div>
           <div class="field">
             <label>Duration Override (min, 0=auto)</label>
             <input type="number" id="durationOverride" min="0" max="120" placeholder="0" />
@@ -409,7 +536,7 @@
 
       <button class="btn btn-primary" id="startBtn">▶ Start Interview</button>
       <div style="text-align:center;font-size:11px;color:#666;margin-top:8px;" id="statusText">
-        Set your API key and click Start — a random LeetCode problem will open automatically
+        Choose a provider, model, and API key — then Start
       </div>
     </div>
 
@@ -452,10 +579,23 @@
         <div class="usage-row"><span>Total Tokens</span><span id="usageLifetimeTokens">—</span></div>
         <div class="usage-row"><span>API Calls</span><span id="usageLifetimeCalls">—</span></div>
         <div class="usage-row usage-cost"><span>Estimated Cost</span><span id="usageLifetimeCost">—</span></div>
-        <div class="usage-note">* Cost estimated from public model pricing; set custom prices in Advanced to override.</div>
+        <div class="usage-note">* Cost estimated from provider pricing; set custom prices in Advanced to override.</div>
       </div>
 
       <button class="btn btn-primary" id="newInterviewBtn">🔄 New Interview</button>
+    </div>
+
+    <!-- HISTORY PANEL -->
+    <div class="panel" id="panel-history">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-secondary" id="exportHistoryBtn">⬇ Export All</button>
+        <button class="btn btn-danger" id="clearHistoryBtn" style="flex:1;">🗑 Clear</button>
+      </div>
+      <div id="historyEmpty" class="welcome-message">
+        <h2>No interviews yet</h2>
+        <div>Completed interviews will appear here.</div>
+      </div>
+      <div id="historyList"></div>
     </div>
   </div>
 

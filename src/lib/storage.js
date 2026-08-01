@@ -1,6 +1,8 @@
 const DEFAULTS = {
   apiKey: '',
+  provider: 'openai',
   apiBaseUrl: 'https://api.openai.com',
+  customModel: '', // optional free-text model override
   model: 'gpt-4o',
   difficulty: 'medium',
   activeMode: false,
@@ -11,6 +13,8 @@ const DEFAULTS = {
 };
 
 const LIFETIME_USAGE_KEY = 'mintcodeLifetimeUsage';
+const INTERVIEW_HISTORY_KEY = 'mintcodeInterviewHistory';
+const MAX_HISTORY_ITEMS = 30;
 
 async function get(keys) {
   return new Promise((resolve) => {
@@ -69,4 +73,33 @@ async function addLifetimeUsage(usage) {
   return updated;
 }
 
-export { DEFAULTS, LIFETIME_USAGE_KEY, get, set, getAll, resetToDefaults, getLifetimeUsage, addLifetimeUsage };
+async function getInterviewHistory() {
+  const data = await getLocal(INTERVIEW_HISTORY_KEY);
+  return data[INTERVIEW_HISTORY_KEY] || [];
+}
+
+async function addInterviewHistory(record) {
+  const current = await getInterviewHistory();
+  const updated = [record, ...current].slice(0, MAX_HISTORY_ITEMS);
+  await setLocal({ [INTERVIEW_HISTORY_KEY]: updated });
+  return updated;
+}
+
+async function clearInterviewHistory() {
+  await setLocal({ [INTERVIEW_HISTORY_KEY]: [] });
+}
+
+export {
+  DEFAULTS,
+  LIFETIME_USAGE_KEY,
+  INTERVIEW_HISTORY_KEY,
+  get,
+  set,
+  getAll,
+  resetToDefaults,
+  getLifetimeUsage,
+  addLifetimeUsage,
+  getInterviewHistory,
+  addInterviewHistory,
+  clearInterviewHistory,
+};

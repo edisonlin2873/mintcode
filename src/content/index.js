@@ -338,7 +338,8 @@ async function startInterview() {
         finalTranscript = final;
         chrome.runtime.sendMessage({
           type: MessageType.TRANSCRIPT_UPDATE,
-          text: (final + ' ' + interim).trim(),
+          final,
+          interim,
         }).catch(() => {});
       },
       onError: (err) => {

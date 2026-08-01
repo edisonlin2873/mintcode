@@ -1,9 +1,16 @@
 import { State, getState, setState } from './state-machine.js';
-import { configure as configureAI, callApi, getUsageStats, resetUsage, buildSystemPrompt, buildEvaluationPrompt } from './ai-client.js';
+import { configure as configureAI, callApi, getUsageStats, resetUsage, buildSystemPrompt, buildActiveSystemPrompt, buildActivePrompt, buildEvaluationPrompt } from './ai-client.js';
 import { start as startTimer, stop as stopTimer, getElapsed } from './timer.js';
-import { getAll, getLifetimeUsage, addLifetimeUsage } from '../lib/storage.js';
+import { getAll, getLifetimeUsage, addLifetimeUsage, addInterviewHistory } from '../lib/storage.js';
 import { MessageType } from '../lib/messages.js';
 import { getRandomProblem, getProblemDetail } from '../lib/leetcode-api.js';
+import { resolveApiConfig, inferProviderFromBaseUrl } from '../lib/providers.js';
+
+const ACTIVE_CHECK_INTERVAL = 5000;
+const SILENCE_THRESHOLD = 15000;
+const PROMPT_COOLDOWN = 60000;
+const IMMEDIATE_COOLDOWN = 3000;
+const UTTERANCE_DEBOUNCE = 1500;
 
 let tabId = null;
 let interviewData = null;
@@ -14,6 +21,21 @@ let activeMode = false;
 let currentLanguage = '';
 let pendingSession = null;
 let injectRetries = 0;
+
+// Active interviewer state
+let activePromptInterval = null;
+let lastUserSpeech = 0;
+let lastCodeChange = 0;
+let lastSilencePromptTime = 0;
+let lastQuestionTime = 0;
+let lastSubmissionTime = 0;
+let promptInFlight = false;
+let conversationHistory = [];
+let lastTranscriptOffset = 0;
+let lastFinalLength = 0;
+let utteranceTimer = null;
+let pendingUtterance = '';
+let codingStarted = false;
 
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
@@ -78,10 +100,17 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       break;
     case MessageType.CODE_SNAPSHOT:
       codeSnapshots.push({ code: msg.code, timestamp: Math.floor(getElapsed()) });
+      lastCodeChange = Date.now();
+      if (codeSnapshots.length > 1) codingStarted = true;
       break;
     case MessageType.TRANSCRIPT_UPDATE:
-      transcript = msg.text;
-      sendToSidePanel({ type: MessageType.TRANSCRIPT_UPDATE, text: msg.text });
+      transcript = (msg.final || '').trim();
+      lastUserSpeech = Date.now();
+      sendToSidePanel({
+        type: MessageType.TRANSCRIPT_UPDATE,
+        text: (msg.final + ' ' + (msg.interim || '')).trim(),
+      });
+      handleNewFinalSpeech(msg.final || '', msg.interim || '');
       break;
     case MessageType.MIC_STATUS:
       sendToSidePanel({ type: MessageType.MIC_STATUS, listening: msg.listening });
@@ -96,6 +125,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
         status: msg.status,
         timeSeconds: Math.floor(getElapsed()),
       });
+      handleSubmissionResult(msg.status);
       break;
     case MessageType.PROBLEM_LOADED:
       currentLanguage = msg.language || '';
@@ -141,16 +171,34 @@ async function handleStartInterview(msg) {
     codeSnapshots = [];
     submissionHistory = [];
     currentLanguage = '';
+    lastInitialPrompt = '';
     resetUsage();
+    stopActiveInterviewer();
 
     const settings = await getAll();
-    configureAI(
-      msg.apiKey || settings.apiKey,
-      msg.apiBaseUrl || settings.apiBaseUrl,
-      msg.model || settings.model,
-      settings.customInputPrice,
-      settings.customOutputPrice
-    );
+    const provider =
+      msg.provider ||
+      settings.provider ||
+      inferProviderFromBaseUrl(msg.apiBaseUrl || settings.apiBaseUrl);
+    const baseUrl = (msg.apiBaseUrl || settings.apiBaseUrl || '').trim();
+    const model = (msg.model || settings.customModel || settings.model || '').trim();
+    const apiCfg = resolveApiConfig(provider, model, { baseUrl, model });
+
+    if (!apiCfg.baseUrl) {
+      throw new Error('Please enter a provider base URL');
+    }
+    if (!apiCfg.model) {
+      throw new Error('Please enter or select a model');
+    }
+
+    configureAI(msg.apiKey || settings.apiKey, {
+      provider: apiCfg.provider,
+      model: apiCfg.model,
+      baseUrl: apiCfg.baseUrl,
+      apiStyle: apiCfg.apiStyle,
+      customInputPrice: settings.customInputPrice,
+      customOutputPrice: settings.customOutputPrice,
+    });
 
     setState(State.SELECTING_PROBLEM);
     broadcastState();
@@ -224,12 +272,189 @@ function handleInterviewStarted() {
   });
 
   sendInitialPrompt();
+
+  if (activeMode) {
+    startActiveInterviewer();
+  }
+}
+
+function startActiveInterviewer() {
+  stopActiveInterviewer();
+  lastUserSpeech = Date.now();
+  lastCodeChange = Date.now();
+  lastSilencePromptTime = 0;
+  lastQuestionTime = 0;
+  lastSubmissionTime = 0;
+  promptInFlight = false;
+  conversationHistory = [];
+  lastTranscriptOffset = 0;
+  lastFinalLength = transcript.length;
+  pendingUtterance = '';
+  codingStarted = false;
+
+  if (lastInitialPrompt) {
+    conversationHistory.push({ role: 'assistant', content: lastInitialPrompt });
+    lastTranscriptOffset = transcript.length;
+  }
+
+  activePromptInterval = setInterval(checkActiveInterviewer, ACTIVE_CHECK_INTERVAL);
+}
+
+function checkActiveInterviewer() {
+  if (getState() !== State.INTERVIEWING) return;
+  if (promptInFlight) return;
+  if (codingStarted) return;
+
+  const now = Date.now();
+  if (now - lastUserSpeech < SILENCE_THRESHOLD) return;
+  if (now - lastSilencePromptTime < PROMPT_COOLDOWN) return;
+
+  triggerInterviewer('silence', '');
+}
+
+// Called on every transcript update; detects a freshly finalized utterance
+// (interim is empty and the final transcript grew), then analyzes it.
+function handleNewFinalSpeech(final, interim) {
+  const newFinal = final.slice(lastFinalLength);
+  lastFinalLength = final.length;
+
+  // Ignore while the user is still talking (interim text present).
+  if (interim && interim.trim()) return;
+  if (!newFinal.trim()) return;
+
+  pendingUtterance = newFinal.trim();
+  if (utteranceTimer) clearTimeout(utteranceTimer);
+  utteranceTimer = setTimeout(() => {
+    utteranceTimer = null;
+    if (getState() !== State.INTERVIEWING) return;
+    analyzeUtterance(pendingUtterance);
+  }, UTTERANCE_DEBOUNCE);
+}
+
+const QUESTION_PATTERNS = [
+  /\?/,
+  /\b(what|why|which|where|when|who)\b/i,
+  /\bhow (do|does|to|should|can|could|would)\b/i,
+  /\b(should|could|would|can) (i|we|it|this|that)\b/i,
+  /\b(is|are|does|do|did) (it|this|that|there|the)\b/i,
+  /\b(is it|are there|any idea|any suggestion|what about|what if|how about)\b/i,
+];
+
+const CODING_INTENT_PATTERNS = [
+  /\b(begin|start|let'?s|gonna|going to|ready to|time to|i'?ll|i will|about to)\b[^.]{0,40}\b(code|coding|implement|implementing|write|writing|programming|program)\b/i,
+  /\b(code|coding|implement)\b[^.]{0,20}\b(start|begin|now)\b/i,
+];
+
+function analyzeUtterance(text) {
+  if (!interviewData || promptInFlight) return;
+  if (!activeMode) return;
+
+  const isQuestion = QUESTION_PATTERNS.some((r) => r.test(text));
+  if (CODING_INTENT_PATTERNS.some((r) => r.test(text))) {
+    codingStarted = true;
+  }
+
+  if (isQuestion) {
+    triggerInterviewer('question', text);
+  }
+  // Otherwise: general statement, let the interview flow without interrupting.
+}
+
+async function handleSubmissionResult(status) {
+  if (!interviewData) return;
+  if (!activeMode) return;
+
+  const s = status.toLowerCase();
+  if (/accepted/.test(s)) {
+    triggerInterviewer('accepted', status);
+  } else if (/wrong answer|time limit|memory limit/.test(s)) {
+    triggerInterviewer('wrong_answer', status);
+  }
+  // Compile errors, runtime errors, and other verdicts: no response.
+}
+
+async function triggerInterviewer(triggerType, utterance) {
+  if (!interviewData || promptInFlight) return;
+  if (getState() !== State.INTERVIEWING) return;
+
+  const now = Date.now();
+  let cooldown = 0;
+  let lastTime = 0;
+  if (triggerType === 'silence') {
+    cooldown = PROMPT_COOLDOWN;
+    lastTime = lastSilencePromptTime;
+  } else if (triggerType === 'question') {
+    cooldown = IMMEDIATE_COOLDOWN;
+    lastTime = lastQuestionTime;
+  }
+  if (now - lastTime < cooldown) return;
+
+  const newSpeech = transcript.slice(lastTranscriptOffset).trim();
+  if (newSpeech) {
+    conversationHistory.push({ role: 'user', content: newSpeech });
+  }
+  lastTranscriptOffset = transcript.length;
+
+  const code = codeSnapshots.length ? codeSnapshots[codeSnapshots.length - 1].code : '';
+  const silenceSeconds = Math.floor((now - lastUserSpeech) / 1000);
+  const codeIdleSeconds = Math.floor((now - lastCodeChange) / 1000);
+
+  promptInFlight = true;
+  if (triggerType === 'silence') lastSilencePromptTime = now;
+  else if (triggerType === 'question') lastQuestionTime = now;
+  else lastSubmissionTime = now;
+
+  try {
+    const { content } = await callApi([
+      { role: 'system', content: buildActiveSystemPrompt(interviewData.problemDetail, currentLanguage) },
+      ...conversationHistory.slice(-8),
+      { role: 'user', content: buildActivePrompt(code, silenceSeconds, codeIdleSeconds, triggerType, utterance) },
+    ]);
+
+    if (getState() !== State.INTERVIEWING) return;
+
+    const response = content.trim();
+    const isOptimal = /\[OPTIMAL\]/.test(response);
+    const cleanResponse = response.replace(/\[(OPTIMAL|NOT_OPTIMAL)\]/gi, '').trim();
+    conversationHistory.push({ role: 'assistant', content: cleanResponse });
+
+    sendToTab(tabId, { type: MessageType.AI_MESSAGE, text: cleanResponse });
+    sendToSidePanel({ type: MessageType.AI_MESSAGE, text: cleanResponse });
+
+    if (triggerType === 'accepted' && isOptimal) {
+      setTimeout(endInterviewEarly, 2000);
+    }
+  } catch (err) {
+    console.error('Active interviewer prompt failed:', err);
+    broadcastError('Interviewer error: ' + (err.message || err));
+  } finally {
+    promptInFlight = false;
+  }
+}
+
+function stopActiveInterviewer() {
+  if (activePromptInterval) {
+    clearInterval(activePromptInterval);
+    activePromptInterval = null;
+  }
+  if (utteranceTimer) {
+    clearTimeout(utteranceTimer);
+    utteranceTimer = null;
+  }
+  promptInFlight = false;
+}
+
+function endInterviewEarly() {
+  if (getState() !== State.INTERVIEWING) return;
+  if (!tabId) return;
+  sendToTab(tabId, { type: 'FINISH_EARLY' }).catch(() => {});
 }
 
 async function handleInterviewFinished(msg) {
   setState(State.EVALUATING);
   broadcastState();
   stopTimer();
+  stopActiveInterviewer();
 
   transcript = msg.transcript || transcript;
   const elapsed = getElapsed();
@@ -260,6 +485,34 @@ async function handleInterviewFinished(msg) {
     const usage = getUsageStats();
     const lifetimeUsage = await addLifetimeUsage(usage);
 
+    await addInterviewHistory({
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      problem: {
+        title: interviewData.problemDetail?.title || '',
+        titleSlug: interviewData.problemDetail?.titleSlug || '',
+        difficulty: interviewData.problemDetail?.difficulty || interviewData.difficulty || '',
+      },
+      language: currentLanguage,
+      duration: elapsed,
+      model: usage.model,
+      provider: usage.provider,
+      overallScore: parsed.overallScore || 0,
+      recommendation: parsed.recommendation || '',
+      scores: parsed.scores || {},
+      summary: parsed.summary || '',
+      usage: {
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        calls: usage.calls,
+        estimatedCost: usage.estimatedCost,
+      },
+      transcript,
+      submissions: submissionHistory,
+      finalCode: codeSnapshots.length ? codeSnapshots[codeSnapshots.length - 1].code : '',
+    });
+
     sendToSidePanel({ type: MessageType.EVALUATION_RESULT, result: parsed, usage, lifetimeUsage });
     sendToTab(tabId, { type: MessageType.EVALUATION_RESULT, result: parsed });
 
@@ -273,6 +526,8 @@ async function handleInterviewFinished(msg) {
   }
 }
 
+let lastInitialPrompt = '';
+
 async function sendInitialPrompt() {
   const problem = interviewData.problemDetail;
   const minutes = interviewData.durationOverride > 0
@@ -280,6 +535,8 @@ async function sendInitialPrompt() {
     : ({ easy: 20, medium: 30, hard: 45 }[interviewData.difficulty] || 30);
 
   const prompt = `Let's begin your interview. You have been given the problem "${problem.title}" (${problem.difficulty}). Read the problem statement carefully, explain your understanding, then discuss your approach before coding. You have ${minutes} minutes. Good luck!`;
+
+  lastInitialPrompt = prompt;
 
   sendToTab(tabId, { type: MessageType.AI_MESSAGE, text: prompt });
   sendToSidePanel({ type: MessageType.AI_MESSAGE, text: prompt });
@@ -311,11 +568,18 @@ function broadcastError(error) {
 
 function cleanupInterview() {
   stopTimer();
+  stopActiveInterviewer();
   interviewData = null;
   transcript = '';
   codeSnapshots = [];
   submissionHistory = [];
   currentLanguage = '';
+  lastInitialPrompt = '';
+  conversationHistory = [];
+  lastTranscriptOffset = 0;
+  lastFinalLength = 0;
+  pendingUtterance = '';
+  codingStarted = false;
   pendingSession = null;
   injectRetries = 0;
 }

@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../lib/markdown.js';
+
 let container = null;
 
 function create() {
@@ -47,9 +49,9 @@ function show(result) {
   const detailsEl = container.querySelector('#results-details');
   const scores = result.scores || {};
   detailsEl.innerHTML = Object.entries(scores).map(([key, val]) => {
-    const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+    const label = escapeHtml(key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()));
     const score = val.score || 0;
-    const reason = val.reason || '';
+    const reason = escapeHtml(val.reason || '');
     const barColor = score >= 7 ? '#4caf50' : score >= 4 ? '#ff9800' : '#f44336';
     return `
       <div class="result-dimension">

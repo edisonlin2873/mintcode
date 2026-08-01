@@ -109,6 +109,26 @@
   <h1>🤖 MintCode</h1>
 
   <div class="field">
+    <label>Provider</label>
+    <select id="provider"></select>
+  </div>
+
+  <div class="field" id="customBaseUrlField" style="display:none">
+    <label>Base URL</label>
+    <input type="text" id="apiBaseUrl" placeholder="https://your-api.example.com/v1" />
+  </div>
+
+  <div class="field">
+    <label>Model</label>
+    <select id="model"></select>
+  </div>
+
+  <div class="field" id="customModelField" style="display:none">
+    <label>Model Name</label>
+    <input type="text" id="customModel" placeholder="e.g. gpt-4o or llama3.2" />
+  </div>
+
+  <div class="field">
     <label>API Key</label>
     <input type="password" id="apiKey" placeholder="sk-..." />
   </div>
@@ -131,14 +151,6 @@
   <div class="advanced-toggle" id="advancedToggle">Advanced Settings ▸</div>
   <div class="advanced" id="advancedSection">
     <div class="field">
-      <label>API Base URL</label>
-      <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com" />
-    </div>
-    <div class="field">
-      <label>Model</label>
-      <input type="text" id="model" placeholder="gpt-4o" />
-    </div>
-    <div class="field">
       <label>Duration Override (minutes, 0 = auto)</label>
       <input type="number" id="durationOverride" min="0" max="120" placeholder="0" />
     </div>
@@ -149,7 +161,7 @@
   <button class="btn btn-start" id="startBtn">Start Interview</button>
   <button class="btn btn-cancel" id="cancelBtn" style="display:none">Cancel</button>
 
-  <div class="status" id="status">Set your API key and click Start</div>
+  <div class="status" id="status">Choose provider, model, and API key</div>
 
   <script src="popup.js"></script>
 </body>
