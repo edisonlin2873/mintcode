@@ -11,6 +11,10 @@ const SILENCE_THRESHOLD = 15000;
 const PROMPT_COOLDOWN = 60000;
 const IMMEDIATE_COOLDOWN = 3000;
 const UTTERANCE_DEBOUNCE = 1500;
+const APPROACH_SILENCE_THRESHOLD = 6000;
+const APPROACH_CODE_IDLE = 5000;
+const APPROACH_REVIEW_COOLDOWN = 90000;
+const MAX_APPROACH_REVIEWS = 3;
 
 let tabId = null;
 let interviewData = null;
@@ -36,6 +40,9 @@ let lastFinalLength = 0;
 let utteranceTimer = null;
 let pendingUtterance = '';
 let codingStarted = false;
+let lastApproachReviewTime = 0;
+let lastReviewedSnapshotCount = 0;
+let approachReviewCount = 0;
 
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
@@ -291,6 +298,9 @@ function startActiveInterviewer() {
   lastFinalLength = transcript.length;
   pendingUtterance = '';
   codingStarted = false;
+  lastApproachReviewTime = 0;
+  lastReviewedSnapshotCount = 0;
+  approachReviewCount = 0;
 
   if (lastInitialPrompt) {
     conversationHistory.push({ role: 'assistant', content: lastInitialPrompt });
@@ -303,13 +313,33 @@ function startActiveInterviewer() {
 function checkActiveInterviewer() {
   if (getState() !== State.INTERVIEWING) return;
   if (promptInFlight) return;
-  if (codingStarted) return;
 
   const now = Date.now();
+
+  if (codingStarted) {
+    checkApproachReview(now);
+    return;
+  }
+
   if (now - lastUserSpeech < SILENCE_THRESHOLD) return;
   if (now - lastSilencePromptTime < PROMPT_COOLDOWN) return;
 
   triggerInterviewer('silence', '');
+}
+
+// During the coding phase, periodically examine the latest code against the
+// problem. Only fires once the user has stopped speaking AND editing for a few
+// seconds, and never more often than the cooldown, so it doesn't interrupt.
+function checkApproachReview(now) {
+  if (!codeSnapshots.length) return;
+  if (approachReviewCount >= MAX_APPROACH_REVIEWS) return;
+  if (codeSnapshots.length <= lastReviewedSnapshotCount) return;
+  if (now - lastUserSpeech < APPROACH_SILENCE_THRESHOLD) return;
+  if (now - lastCodeChange < APPROACH_CODE_IDLE) return;
+  if (now - lastApproachReviewTime < APPROACH_REVIEW_COOLDOWN) return;
+
+  lastReviewedSnapshotCount = codeSnapshots.length;
+  triggerInterviewer('approach_review', '');
 }
 
 // Called on every transcript update; detects a freshly finalized utterance
@@ -386,6 +416,9 @@ async function triggerInterviewer(triggerType, utterance) {
   } else if (triggerType === 'question') {
     cooldown = IMMEDIATE_COOLDOWN;
     lastTime = lastQuestionTime;
+  } else if (triggerType === 'approach_review') {
+    cooldown = APPROACH_REVIEW_COOLDOWN;
+    lastTime = lastApproachReviewTime;
   }
   if (now - lastTime < cooldown) return;
 
@@ -402,6 +435,10 @@ async function triggerInterviewer(triggerType, utterance) {
   promptInFlight = true;
   if (triggerType === 'silence') lastSilencePromptTime = now;
   else if (triggerType === 'question') lastQuestionTime = now;
+  else if (triggerType === 'approach_review') {
+    lastApproachReviewTime = now;
+    approachReviewCount += 1;
+  }
   else lastSubmissionTime = now;
 
   try {
@@ -415,7 +452,10 @@ async function triggerInterviewer(triggerType, utterance) {
 
     const response = content.trim();
     const isOptimal = /\[OPTIMAL\]/.test(response);
-    const cleanResponse = response.replace(/\[(OPTIMAL|NOT_OPTIMAL)\]/gi, '').trim();
+    const isNoResponse = /\[NO_RESPONSE\]/.test(response);
+    if (isNoResponse) return;
+
+    const cleanResponse = response.replace(/\[(OPTIMAL|NOT_OPTIMAL|NO_RESPONSE)\]/gi, '').trim();
     conversationHistory.push({ role: 'assistant', content: cleanResponse });
 
     sendToTab(tabId, { type: MessageType.AI_MESSAGE, text: cleanResponse });
@@ -580,6 +620,9 @@ function cleanupInterview() {
   lastFinalLength = 0;
   pendingUtterance = '';
   codingStarted = false;
+  lastApproachReviewTime = 0;
+  lastReviewedSnapshotCount = 0;
+  approachReviewCount = 0;
   pendingSession = null;
   injectRetries = 0;
 }

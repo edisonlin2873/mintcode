@@ -220,11 +220,17 @@ function buildActivePrompt(code, silenceSeconds, codeIdleSeconds, triggerType, u
   if (triggerType === 'question') {
     directive = `The candidate just asked:\n"${utterance}"\n\nAnswer their question directly and concisely. Keep your reply to 1-2 short sentences.`;
   } else if (triggerType === 'accepted') {
-    directive = `The candidate just received an "Accepted" verdict. Look at their current code and judge whether it is optimal: if it is not optimal (suboptimal time or space complexity, or an overly complicated solution), briefly guide them toward a more optimal approach with a SLIGHT hint. If it is already optimal, give a short acknowledgment.
+    directive = `The candidate just received an "Accepted" verdict. Look at their current code and judge whether it is optimal: if it is not optimal (suboptimal time or space complexity, or an overly complicated solution), ask a rhetorical question about improving, and give a small hint (such as "try using a different data structure"). If it is already optimal, give a short acknowledgment.
 
 Start your reply with exactly "[OPTIMAL]" if the solution is already optimal, or "[NOT_OPTIMAL]" if it can be improved. On the following line, give your 1-2 sentence reply.`;
   } else if (triggerType === 'wrong_answer') {
     directive = `The candidate just received a "Wrong Answer" verdict (or a time/memory limit issue). Read their current code carefully and give a SLIGHT, subtle hint that points them in the right direction — do NOT reveal the fix or the solution. Keep your reply to 1-2 short sentences.`;
+  } else if (triggerType === 'approach_review') {
+    directive = `The candidate just paused after speaking and editing code. Review their current code against the problem and take into account their recent spoken explanation of the approach.
+
+If the approach is correct and reasonable, reply with exactly "[NO_RESPONSE]".
+
+If the approach is wrong, suboptimal, or on the wrong track (for example: a wrong data structure, an algorithm that will not meet the time/space requirements, or missing edge-case handling), ask ONE short conceptual/clarifying question about their approach — for example, why they chose that data structure, what the time complexity is, or how they would handle edge cases. Do NOT reveal the solution, the fix, or the optimal trick. Keep your reply to 1-2 short sentences.`;
   } else {
     const stuckHint = codeIdleSeconds > 90
       ? '\nThe candidate may be stuck. Offer only a very subtle hint.'

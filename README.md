@@ -1,5 +1,6 @@
 # MintCode
 
+![MintCode demo](mintcode.gif)
 AI-powered mock interviews for LeetCode. MintCode runs a live coding interview in your browser: it picks a problem, acts as a technical interviewer, listens to your spoken explanations, watches your code, and grades the whole performance.
 
 Built as a Chrome extension (Manifest V3). It uses **your own** LLM API key (BYOK) — nothing is routed through a MintCode server.
@@ -24,6 +25,8 @@ Built as a Chrome extension (Manifest V3). It uses **your own** LLM API key (BYO
 ## Installation
 
 ```bash
+git clone https://github.com/edisonlin2873/mintcode.git
+cd mintcode
 npm install
 npm run build
 ```
